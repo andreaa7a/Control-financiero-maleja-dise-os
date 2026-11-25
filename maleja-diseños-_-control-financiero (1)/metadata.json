@@ -1,0 +1,6 @@
+{
+  "name": "Maleja Diseños | Control Financiero",
+  "description": "Sistema administrativo y financiero para el control de ventas, ingresos, gastos, costos de producción y cuentas por cobrar de Maleja Diseños.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

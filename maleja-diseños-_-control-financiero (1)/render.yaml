@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: maleja-disenos-control-financiero
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ALLOWED_ADMIN_EMAILS
+        value: malejacalcas@gmail.com

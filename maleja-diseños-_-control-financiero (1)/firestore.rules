@@ -1,0 +1,404 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isPrimaryOwner() {
+      return isVerifiedUser() && request.auth.token.email == 'malejacalcas@gmail.com';
+    }
+
+    function isAuthorizedUser() {
+      return isPrimaryOwner()
+        || (
+          isVerifiedUser()
+          && exists(/databases/$(database)/documents/authorizedUsers/$(request.auth.uid))
+          && get(/databases/$(database)/documents/authorizedUsers/$(request.auth.uid)).data.active == true
+        );
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 50 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isBoundedString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isOptionalString(data, field, maxLen) {
+      return !(field in data) || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isValidDateString(val) {
+      return val is string && val.size() == 10 && val.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    // Entity validation blueprints
+    function isValidSale(data, saleId) {
+      return data.keys().hasAll([
+          'id', 'date', 'clientName', 'items', 'subtotal',
+          'discount', 'total', 'amountPaid', 'paymentStatus', 'paymentMethod'
+        ])
+        && data.keys().hasOnly([
+          'id', 'date', 'clientName', 'clientPhone', 'clientEmail',
+          'items', 'subtotal', 'discount', 'total', 'amountPaid',
+          'paymentStatus', 'paymentMethod', 'lastPaymentDate', 'notes'
+        ])
+        && data.id == saleId
+        && isValidId(data.id)
+        && isValidDateString(data.date)
+        && isBoundedString(data.clientName, 1, 150)
+        && isOptionalString(data, 'clientPhone', 50)
+        && isOptionalString(data, 'clientEmail', 100)
+        && isOptionalString(data, 'lastPaymentDate', 20)
+        && isOptionalString(data, 'notes', 500)
+        && data.items is list
+        && data.items.size() >= 1
+        && data.items.size() <= 100
+        && data.items[0] is map
+        && data.subtotal is number && data.subtotal >= 0
+        && data.discount is number && data.discount >= 0 && data.discount <= data.subtotal
+        && data.total is number && data.total >= 0
+        && data.amountPaid is number && data.amountPaid >= 0 && data.amountPaid <= data.total
+        && data.paymentStatus in ['Pagado', 'Parcial', 'Pendiente']
+        && isBoundedString(data.paymentMethod, 1, 50);
+    }
+
+    function isValidExpense(data, expenseId) {
+      return data.keys().hasAll([
+          'id', 'date', 'category', 'type', 'description',
+          'amount', 'paymentMethod', 'status'
+        ])
+        && data.keys().hasOnly([
+          'id', 'date', 'category', 'type', 'description',
+          'amount', 'paymentMethod', 'supplier', 'receiptNumber',
+          'status', 'isRecurring', 'notes'
+        ])
+        && data.id == expenseId
+        && isValidId(data.id)
+        && isValidDateString(data.date)
+        && isBoundedString(data.category, 1, 100)
+        && data.type in ['Fijo', 'Variable', 'Extraordinario']
+        && isBoundedString(data.description, 1, 200)
+        && data.amount is number && data.amount > 0
+        && isBoundedString(data.paymentMethod, 1, 50)
+        && data.status in ['Pagado', 'Pendiente']
+        && isOptionalString(data, 'supplier', 100)
+        && isOptionalString(data, 'receiptNumber', 50)
+        && isOptionalString(data, 'notes', 300)
+        && (!('isRecurring' in data) || data.isRecurring is bool);
+    }
+
+    function isValidProductionCost(data, pcId) {
+      return data.keys().hasAll([
+          'id', 'date', 'orderReference', 'clientName', 'productName',
+          'quantityProduced', 'materialName', 'materialQuantity', 'materialUnitPrice',
+          'materialTotalCost', 'laborCost', 'productionTime', 'otherCosts',
+          'totalCost', 'unitCost', 'salePrice', 'grossProfit', 'profitMargin', 'description'
+        ])
+        && data.keys().hasOnly([
+          'id', 'date', 'orderReference', 'clientName', 'productName',
+          'quantityProduced', 'materialName', 'materialQuantity', 'materialUnitPrice',
+          'materialTotalCost', 'laborCost', 'productionTime', 'otherCosts',
+          'totalCost', 'unitCost', 'salePrice', 'grossProfit', 'profitMargin',
+          'description', 'materialCost', 'machineCost'
+        ])
+        && data.id == pcId
+        && isValidId(data.id)
+        && isValidDateString(data.date)
+        && isBoundedString(data.orderReference, 1, 50)
+        && isBoundedString(data.clientName, 1, 150)
+        && isBoundedString(data.productName, 1, 100)
+        && data.quantityProduced is number && data.quantityProduced > 0
+        && isBoundedString(data.materialName, 1, 100)
+        && data.materialQuantity is number && data.materialQuantity > 0
+        && data.materialUnitPrice is number && data.materialUnitPrice >= 0
+        && data.materialTotalCost is number && data.materialTotalCost >= 0
+        && data.laborCost is number && data.laborCost >= 0
+        && isBoundedString(data.productionTime, 0, 50)
+        && data.otherCosts is number && data.otherCosts >= 0
+        && data.totalCost is number && data.totalCost >= 0
+        && data.unitCost is number && data.unitCost >= 0
+        && data.salePrice is number && data.salePrice >= 0
+        && data.grossProfit is number
+        && data.profitMargin is number
+        && isBoundedString(data.description, 1, 300)
+        && (!('materialCost' in data) || data.materialCost is number)
+        && (!('machineCost' in data) || data.machineCost is number);
+    }
+
+    function isValidSupplier(data, supplierId) {
+      return data.keys().hasAll(['id', 'name', 'category'])
+        && data.keys().hasOnly([
+          'id', 'name', 'category', 'contactPerson', 'phone', 'email', 'address', 'notes'
+        ])
+        && data.id == supplierId
+        && isValidId(data.id)
+        && isBoundedString(data.name, 1, 150)
+        && isBoundedString(data.category, 1, 100)
+        && isOptionalString(data, 'contactPerson', 100)
+        && isOptionalString(data, 'phone', 50)
+        && isOptionalString(data, 'email', 100)
+        && isOptionalString(data, 'address', 200)
+        && isOptionalString(data, 'notes', 300);
+    }
+
+    function isValidPurchaseOrder(data, poId) {
+      return data.keys().hasAll([
+          'id', 'date', 'supplierId', 'supplierName',
+          'itemsDescription', 'amount', 'status', 'paymentMethod'
+        ])
+        && data.keys().hasOnly([
+          'id', 'date', 'supplierId', 'supplierName',
+          'itemsDescription', 'amount', 'status', 'paymentMethod', 'notes'
+        ])
+        && data.id == poId
+        && isValidId(data.id)
+        && isValidDateString(data.date)
+        && isBoundedString(data.supplierId, 0, 50)
+        && isBoundedString(data.supplierName, 1, 150)
+        && isBoundedString(data.itemsDescription, 1, 300)
+        && data.amount is number && data.amount > 0
+        && data.status in ['Pagado', 'Pendiente']
+        && isBoundedString(data.paymentMethod, 1, 50)
+        && isOptionalString(data, 'notes', 300);
+    }
+
+    function isValidAuditLog(data, logId) {
+      return data.keys().hasAll(['id', 'timestamp', 'action', 'module', 'description'])
+        && data.keys().hasOnly(['id', 'timestamp', 'action', 'module', 'description'])
+        && data.id == logId
+        && isValidId(data.id)
+        && isBoundedString(data.timestamp, 1, 50)
+        && data.action in ['CREACIÓN', 'MODIFICACIÓN', 'ELIMINACIÓN']
+        && isBoundedString(data.module, 1, 50)
+        && isBoundedString(data.description, 1, 300);
+    }
+
+    function isValidMaterialTemplate(data, matId) {
+      return data.keys().hasAll(['id', 'name', 'unit', 'unitPrice'])
+        && data.keys().hasOnly(['id', 'name', 'unit', 'unitPrice'])
+        && data.id == matId
+        && isValidId(data.id)
+        && isBoundedString(data.name, 1, 100)
+        && isBoundedString(data.unit, 1, 30)
+        && data.unitPrice is number && data.unitPrice >= 0;
+    }
+
+    function isValidAuthorizedUser(data, uid) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'active'])
+        && data.keys().hasOnly(['uid', 'email', 'role', 'active'])
+        && data.uid == uid
+        && isBoundedString(data.uid, 1, 128)
+        && isBoundedString(data.email, 3, 150)
+        && data.role in ['admin', 'operator']
+        && data.active is bool;
+    }
+
+    function isValidSettings(data, settingId) {
+      return data.keys().hasAll([
+          'companyName', 'nit', 'address', 'phone', 'email',
+          'defaultTaxRate', 'currencyCode', 'currencySymbol',
+          'monthlySalesGoal', 'monthlyProfitGoal', 'monthlyPurchasesBudget',
+          'saleCategories', 'expenseCategories', 'paymentMethods', 'fixedExpensesConfig'
+        ])
+        && data.keys().hasOnly([
+          'id', 'companyName', 'nit', 'address', 'phone', 'email', 'logoUrl',
+          'defaultTaxRate', 'currencyCode', 'currencySymbol',
+          'monthlySalesGoal', 'monthlyProfitGoal', 'monthlyPurchasesBudget',
+          'saleCategories', 'expenseCategories', 'paymentMethods', 'fixedExpensesConfig'
+        ])
+        && (!('id' in data) || (data.id == settingId && isValidId(data.id)))
+        && isBoundedString(data.companyName, 1, 120)
+        && isBoundedString(data.nit, 1, 50)
+        && isBoundedString(data.address, 0, 200)
+        && isBoundedString(data.phone, 0, 50)
+        && isBoundedString(data.email, 0, 100)
+        && (!('logoUrl' in data) || (
+          data.logoUrl is string
+          && data.logoUrl.size() <= 160000
+          && (
+            data.logoUrl == ''
+            || data.logoUrl.matches('^https://[^\\s]+$')
+            || data.logoUrl.matches('^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$')
+          )
+        ))
+        && data.defaultTaxRate is number && data.defaultTaxRate >= 0
+        && isBoundedString(data.currencyCode, 1, 10)
+        && isBoundedString(data.currencySymbol, 1, 10)
+        && data.monthlySalesGoal is number && data.monthlySalesGoal >= 0
+        && data.monthlyProfitGoal is number && data.monthlyProfitGoal >= 0
+        && data.monthlyPurchasesBudget is number && data.monthlyPurchasesBudget >= 0
+        && data.saleCategories is list
+        && data.saleCategories.size() >= 1
+        && data.saleCategories.size() <= 50
+        && data.saleCategories[0] is string
+        && data.expenseCategories is map
+        && data.expenseCategories.keys().hasAll(['Fijo', 'Variable', 'Extraordinario'])
+        && data.expenseCategories.keys().hasOnly(['Fijo', 'Variable', 'Extraordinario'])
+        && data.expenseCategories.Fijo is list && data.expenseCategories.Fijo.size() >= 1 && data.expenseCategories.Fijo.size() <= 50
+        && data.expenseCategories.Variable is list && data.expenseCategories.Variable.size() >= 1 && data.expenseCategories.Variable.size() <= 50
+        && data.expenseCategories.Extraordinario is list && data.expenseCategories.Extraordinario.size() >= 1 && data.expenseCategories.Extraordinario.size() <= 50
+        && data.paymentMethods is list
+        && data.paymentMethods.size() >= 1
+        && data.paymentMethods.size() <= 30
+        && data.paymentMethods[0] is string
+        && data.fixedExpensesConfig is list
+        && data.fixedExpensesConfig.size() <= 100
+        && (data.fixedExpensesConfig.size() == 0 || data.fixedExpensesConfig[0] is map);
+    }
+
+    // Connection & authorization verification document
+    match /test/connection {
+      allow get: if isAuthorizedUser();
+      allow list, create, update, delete: if false;
+    }
+
+    // Authorized users allowlist (only primary business owner can manage; verified users can read their own record)
+    match /authorizedUsers/{uid} {
+      allow get: if isPrimaryOwner() || (isVerifiedUser() && request.auth.uid == uid);
+      allow list: if isPrimaryOwner();
+      allow create: if isPrimaryOwner() && isValidAuthorizedUser(incoming(), uid);
+      allow update: if isPrimaryOwner()
+        && isValidAuthorizedUser(incoming(), uid)
+        && incoming().uid == existing().uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'role', 'active']);
+      allow delete: if isPrimaryOwner();
+    }
+
+    // Sales collection
+    match /sales/{saleId} {
+      allow get: if isAuthorizedUser() && isValidId(saleId);
+      allow list: if isAuthorizedUser();
+      allow create: if isAuthorizedUser() && isValidId(saleId) && isValidSale(incoming(), saleId);
+      allow update: if isAuthorizedUser() && isValidId(saleId)
+        && isValidSale(incoming(), saleId)
+        && incoming().id == existing().id
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'date', 'clientName', 'clientPhone', 'clientEmail', 'items',
+          'subtotal', 'discount', 'total', 'amountPaid', 'paymentStatus',
+          'paymentMethod', 'lastPaymentDate', 'notes'
+        ]);
+      allow delete: if isAuthorizedUser() && isValidId(saleId);
+    }
+
+    // Expenses collection
+    match /expenses/{expenseId} {
+      allow get: if isAuthorizedUser() && isValidId(expenseId);
+      allow list: if isAuthorizedUser();
+      allow create: if isAuthorizedUser() && isValidId(expenseId) && isValidExpense(incoming(), expenseId);
+      allow update: if isAuthorizedUser() && isValidId(expenseId)
+        && isValidExpense(incoming(), expenseId)
+        && incoming().id == existing().id
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'date', 'category', 'type', 'description', 'amount',
+          'paymentMethod', 'supplier', 'receiptNumber', 'status', 'isRecurring', 'notes'
+        ]);
+      allow delete: if isAuthorizedUser() && isValidId(expenseId);
+    }
+
+    // Production Costs collection
+    match /productionCosts/{pcId} {
+      allow get: if isAuthorizedUser() && isValidId(pcId);
+      allow list: if isAuthorizedUser();
+      allow create: if isAuthorizedUser() && isValidId(pcId) && isValidProductionCost(incoming(), pcId);
+      allow update: if isAuthorizedUser() && isValidId(pcId)
+        && isValidProductionCost(incoming(), pcId)
+        && incoming().id == existing().id
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'date', 'orderReference', 'clientName', 'productName',
+          'quantityProduced', 'materialName', 'materialQuantity', 'materialUnitPrice',
+          'materialTotalCost', 'laborCost', 'productionTime', 'otherCosts',
+          'totalCost', 'unitCost', 'salePrice', 'grossProfit', 'profitMargin', 'description',
+          'materialCost', 'machineCost'
+        ]);
+      allow delete: if isAuthorizedUser() && isValidId(pcId);
+    }
+
+    // Suppliers collection
+    match /suppliers/{supplierId} {
+      allow get: if isAuthorizedUser() && isValidId(supplierId);
+      allow list: if isAuthorizedUser();
+      allow create: if isAuthorizedUser() && isValidId(supplierId) && isValidSupplier(incoming(), supplierId);
+      allow update: if isAuthorizedUser() && isValidId(supplierId)
+        && isValidSupplier(incoming(), supplierId)
+        && incoming().id == existing().id
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'category', 'contactPerson', 'phone', 'email', 'address', 'notes'
+        ]);
+      allow delete: if isAuthorizedUser() && isValidId(supplierId);
+    }
+
+    // Purchase Orders collection
+    match /purchaseOrders/{poId} {
+      allow get: if isAuthorizedUser() && isValidId(poId);
+      allow list: if isAuthorizedUser();
+      allow create: if isAuthorizedUser() && isValidId(poId) && isValidPurchaseOrder(incoming(), poId);
+      allow update: if isAuthorizedUser() && isValidId(poId)
+        && isValidPurchaseOrder(incoming(), poId)
+        && incoming().id == existing().id
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'date', 'supplierId', 'supplierName', 'itemsDescription',
+          'amount', 'status', 'paymentMethod', 'notes'
+        ]);
+      allow delete: if isAuthorizedUser() && isValidId(poId);
+    }
+
+    // Material Templates collection
+    match /materialTemplates/{matId} {
+      allow get: if isAuthorizedUser() && isValidId(matId);
+      allow list: if isAuthorizedUser();
+      allow create: if isAuthorizedUser() && isValidId(matId) && isValidMaterialTemplate(incoming(), matId);
+      allow update: if isAuthorizedUser() && isValidId(matId)
+        && isValidMaterialTemplate(incoming(), matId)
+        && incoming().id == existing().id
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'unit', 'unitPrice']);
+      allow delete: if isAuthorizedUser() && isValidId(matId);
+    }
+
+    // Audit Logs collection (append-only; updates forbidden to preserve audit trail integrity)
+    match /auditLogs/{logId} {
+      allow get: if isAuthorizedUser() && isValidId(logId);
+      allow list: if isAuthorizedUser();
+      allow create: if isAuthorizedUser() && isValidId(logId) && isValidAuditLog(incoming(), logId);
+      allow update: if false;
+      allow delete: if isAuthorizedUser() && isValidId(logId);
+    }
+
+    // Business Settings collection
+    match /settings/{settingId} {
+      allow get: if isAuthorizedUser() && isValidId(settingId);
+      allow list: if isAuthorizedUser();
+      allow create: if isAuthorizedUser() && isValidId(settingId) && isValidSettings(incoming(), settingId);
+      allow update: if isAuthorizedUser() && isValidId(settingId)
+        && isValidSettings(incoming(), settingId)
+        && (!('id' in existing()) || incoming().id == existing().id)
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'id', 'companyName', 'nit', 'address', 'phone', 'email', 'logoUrl',
+          'defaultTaxRate', 'currencyCode', 'currencySymbol',
+          'monthlySalesGoal', 'monthlyProfitGoal', 'monthlyPurchasesBudget',
+          'saleCategories', 'expenseCategories', 'paymentMethods', 'fixedExpensesConfig'
+        ]);
+      allow delete: if isAuthorizedUser() && isValidId(settingId);
+    }
+  }
+}
