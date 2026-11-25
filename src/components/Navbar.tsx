@@ -1,6 +1,7 @@
 import React from 'react';
 import { Sparkles, Plus, Search, LogOut, User, Sun, Moon, Menu, X } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import { PWAInstallButton } from './PWAInstallButton';
 import type { ActiveTab } from './Sidebar';
 
 export interface GlobalSearchResult {
@@ -131,6 +132,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           <Sparkles className="w-4 h-4 text-blue-100" />
           <span className="hidden sm:inline">Asistente IA</span>
         </button>
+
+        <PWAInstallButton />
 
         <div className="hidden sm:flex items-center space-x-2">
           <button
